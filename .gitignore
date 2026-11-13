@@ -17,6 +17,9 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+.vercel
+images/*
+!images/README.md
 *.local
 
 # Wrangler / Cloudflare

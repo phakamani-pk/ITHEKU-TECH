@@ -1,47 +1,35 @@
-# Brand Visualizer
+# iTheku Tech
 
-design the website given this document, i prefer the first logo but whichever one you decide to use, maintain its colours
+A TanStack Start business website with an Express API, a 13-service catalogue,
+project enquiry form, and authenticated client and staff project workspaces.
 
-This project was built with [Lovable](https://lovable.dev).
+## Local setup
 
-## Build with Lovable
+1. Install dependencies with `npm install` (or use the existing Bun lockfile).
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env`.
+   The lead server function also accepts `SUPABASE_URL` and
+   `SUPABASE_PUBLISHABLE_KEY` as runtime variables. Use the project URL and
+   public/publishable key, **not** the service-role key.
+3. Review and apply the migrations in order using the Supabase SQL Editor or
+   your normal migration process:
+   - [Public leads](supabase/migrations/20261113000000_public_leads.sql)
+   - [Project workspaces](supabase/migrations/20261113000001_platform_workspaces.sql)
+4. Run `npm run dev`. Open the URL printed by Vite.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/e268ef92-266b-4f91-8c78-f49e85fb4cc6).
+The migrations create separate `public_leads` and `platform_*` tables; they
+do not modify or migrate data from any existing lead or portal tables. Review
+names and policies against the deployed project before applying them. The
+Supabase instance must expose the `public` schema through its Data API.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Client and staff workspaces
 
-## Development
+Create users in Supabase Auth and provide their sign-in credentials through
+your usual secure onboarding process. The workspace migration creates profiles
+for existing users and keeps profiles in sync for new Auth users. Clients sign
+in at `/client-portal`; staff sign in at `/admin-portal`.
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
-```
-
-## Project Workspaces
-
-The client portal at `/client-portal` lets authenticated clients follow assigned project progress, read delivery updates, and message the iTheku team. The staff portal at `/admin-portal` manages client projects, publishes progress updates, and replies in project conversations.
-
-### Connect Supabase
-
-Set the project URL and publishable key in the local `.env` file. The browser uses the `VITE_` variables; the server-side lead form uses the server variables as well:
-
-```env
-VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
-SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
-SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
-```
-
-The service-role key is used only by the authenticated server function that reads and triages private website requests. Never put it in a `VITE_` variable or expose it to the browser. Apply [the project workspaces migration](supabase/migrations/20261030000000_project_workspaces.sql) in the Supabase SQL Editor. It creates the profile, project, project-update and project-message tables, with row-level security and grants for authenticated users.
-
-Create client accounts in Supabase Auth. A profile is created automatically for each Auth user. To grant a staff account access, set the trusted `app_metadata` role from the Supabase SQL Editor, replacing the email with the staff account:
+To grant a staff account access, set the **trusted app metadata** role from the
+Supabase SQL Editor, replacing the email:
 
 ```sql
 update auth.users
@@ -49,4 +37,53 @@ set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"ad
 where email = 'staff@example.com';
 ```
 
-Have the staff user sign out and back in after changing the role so the refreshed access token carries the new claim. Clients do not need a role claim; row-level security limits them to their own projects and conversations.
+The `admin` and `staff` roles both have staff access. After changing a role,
+the user must sign out and back in to refresh the access token. Never assign
+roles through user-editable metadata. Staff can create projects, assign an
+existing Auth user, change status and progress, publish updates, and send
+messages. Clients can see only their assigned projects, read updates, and
+participate in their project conversations. RLS enforces those permissions
+independently of the interface. Use the Refresh button to fetch new activity;
+the workspace does not currently push real-time updates.
+
+Supabase Auth handles sign-in in the browser. Project and conversation requests
+go through the same-origin Express API under `/api`; the API verifies the user's
+access token with Supabase and forwards that token to the database so RLS
+continues to enforce project access. The API does not use a service-role key.
+
+Before launch, test with at least two client accounts and one staff account:
+verify each client cannot read the other's projects or messages, cannot create
+projects or updates, and cannot impersonate another sender. Also test staff
+project creation, edits, progress updates, publishing and messaging. A project
+cannot be reassigned through the app or authenticated API: create a new project
+for a different client so old conversations are not exposed to them.
+
+## Lead submissions
+
+The form uses the TanStack server function, which passes requests to Express.
+Validation runs on the client and server. The database function also
+validates inputs because it is callable with a public key. It allows up to
+three submissions per email per hour and uses a request ID for idempotent
+retries. Anonymous and authenticated users cannot read the lead table;
+service-role management can review submissions in the Supabase dashboard.
+Email rate limiting alone is not a complete anti-spam solution: consider
+additional network-level protection before public launch.
+
+## Deploy to Vercel
+
+1. Import the repository into Vercel and use `npm run build` as the build
+   command. Vite uses Nitro's Vercel preset, which deploys the Express API and
+   TanStack application together as a Node server function.
+2. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the
+   relevant Vercel environments. Optionally also configure `SUPABASE_URL` and
+   `SUPABASE_PUBLISHABLE_KEY` for the lead server function at runtime.
+3. Apply and verify both migrations, deploy, submit a test enquiry, and test
+   the client and staff flows with separate accounts.
+4. Confirm the [service content](src/data/services.ts) before launch. The
+   optimized logo mark is served as a Vercel static asset. The homepage workspace illustration is
+   a concept, not a claim about a delivered customer project.
+
+Keep service-role credentials out of browser-exposed `VITE_` variables and out
+of source control. The local `.env` is tracked in this checkout: review it
+before sharing or committing changes and rotate any credentials that have
+been exposed.
